@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db   = require('./db');
 const fs   = require('fs');
@@ -103,86 +103,32 @@ function parseNum(str) {
   return str.replace(/,/g, '');
 }
 
+// ─── Instagram check via logged-in session ───────────────────────────────────
+const igSession = require('./ig-session');
+
 async function checkOnce(username) {
-  let browser;
   try {
-    const puppeteer = require('puppeteer');
-
-    // ─── Auto-detect Chrome path for EXE mode ──────────────────────────
-    let chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
-    
-    if (!chromePath && typeof process.pkg !== 'undefined') {
-      // Running inside pkg exe — find Chrome in .cache/ next to exe
-      const exeDir = path.dirname(process.execPath);
-      const cacheChromeDir = path.join(exeDir, '.cache', 'puppeteer', 'chrome');
-      try {
-        if (fs.existsSync(cacheChromeDir)) {
-          const versions = fs.readdirSync(cacheChromeDir).sort().reverse();
-          for (const ver of versions) {
-            const candidate = path.join(cacheChromeDir, ver, 'chrome-win64', 'chrome.exe');
-            if (fs.existsSync(candidate)) {
-              chromePath = candidate;
-              console.log(`[check] Using Chrome: ${chromePath}`);
-              break;
-            }
-          }
-        }
-      } catch (_) {}
-      
-      // Fallback: check system Chrome
-      if (!chromePath) {
-        const systemPaths = [
-          'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-          'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-          path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
-        ];
-        for (const sp of systemPaths) {
-          if (fs.existsSync(sp)) {
-            chromePath = sp;
-            console.log(`[check] Using system Chrome: ${chromePath}`);
-            break;
-          }
-        }
-      }
-    }
-
-    browser = await puppeteer.launch({
-      headless: true,
-      executablePath: chromePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--window-size=1280,800'
-      ]
-    });
-
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 800 });
-
-    await page.goto(`https://www.instagram.com/${username}/`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
-
-    // Wait for meta tags to load
-    await new Promise(r => setTimeout(r, 4000));
-
-    const data = await page.evaluate(() => {
-      const ogDesc = document.querySelector('meta[property="og:description"]');
-      const ogImg  = document.querySelector('meta[property="og:image"]');
-      return {
-        desc: ogDesc ? ogDesc.getAttribute('content') : '',
-        img:  ogImg  ? ogImg.getAttribute('content')  : ''
-      };
-    });
+    const data = await igSession.getPage(username);
+    if (!data) return null;
+    if (data.rateLimited) return null;
 
     const raw = data.desc || '';
     console.log(`[check] ${username} og:description:`, raw.substring(0, 100));
+    console.log(`[check] ${username} title:`, data.title);
+
+    // Detect banned: page says "not found" or "sorry" or no description at all
+    const bodyLow = (data.bodyTxt || '').toLowerCase();
+    const titleLow = (data.title || '').toLowerCase();
+    const notFound =
+      bodyLow.includes("sorry, this page isn't available") ||
+      bodyLow.includes('page not found') ||
+      titleLow.includes('page not found') ||
+      (data.url && data.url.includes('/404'));
+
+    if (notFound) {
+      console.log(`[check] ${username} → banned/not found`);
+      return { banned: true, followers: null, following: null, posts: null, profilePic: data.profilePic || null, bio: '', isVerified: false };
+    }
 
     const numPat  = '([\\d,.]+[KMBkmb]?)';
     const fMatch  = raw.match(new RegExp(numPat + '\\s*Followers?', 'i'));
@@ -195,50 +141,17 @@ async function checkOnce(username) {
 
     console.log(`[check] ${username} parsed: followers=${followers}, following=${following}`);
 
-    // Fetch real profile pic using browser's XHR (uses browser session/cookies)
-    let profilePic = null;
-    if (data.img) {
-      try {
-        const b64 = await page.evaluate(async (url) => {
-          return new Promise((resolve) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', url, true);
-            xhr.responseType = 'arraybuffer';
-            xhr.onload = () => {
-              if (xhr.status === 200) {
-                const bytes = new Uint8Array(xhr.response);
-                let binary = '';
-                for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-                resolve(btoa(binary));
-              } else {
-                resolve(null);
-              }
-            };
-            xhr.onerror = () => resolve(null);
-            xhr.timeout = 8000;
-            xhr.ontimeout = () => resolve(null);
-            xhr.send();
-          });
-        }, data.img);
-
-        if (b64) {
-          profilePic = Buffer.from(b64, 'base64');
-          console.log(`[check] ${username} profile pic fetched via XHR (${profilePic.length} bytes)`);
-        }
-      } catch (e) {
-        console.log(`[check] ${username} XHR pic failed:`, e.message);
-      }
+    // If we got no data at all and body is short, treat as error not ban
+    if (!followers && !following && raw.length === 0 && bodyLow.length < 100) {
+      console.warn(`[check] ${username} → no data, treating as fetch error`);
+      return null;
     }
 
-    await browser.close();
-    browser = null;
-
-    const banned = !followers && !following;
-    return { banned, followers, following, posts, profilePic, bio: '', isVerified: false };
+    const banned = notFound || (!followers && !following && raw.length === 0);
+    return { banned, followers, following, posts, profilePic: data.profilePic || null, bio: '', isVerified: false };
 
   } catch (err) {
-    console.error(`[check] Puppeteer error for ${username}:`, err.message);
-    if (browser) await browser.close().catch(() => {});
+    console.error(`[check] error for ${username}:`, err.message);
     return null;
   }
 }

@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.tor
     pkgs.chromium
     pkgs.libdrm
     pkgs.cups
