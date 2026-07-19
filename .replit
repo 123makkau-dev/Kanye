@@ -43,3 +43,6 @@ timeoutMs = 20000
 
 [userenv.shared]
 OWNER_ID_1 = "1191762996444278826"
+
+[nix]
+channel = "stable-25_05"
