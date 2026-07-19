@@ -1,206 +1,128 @@
 /**
- * Instagram session manager.
- * Logs in once with Puppeteer, saves cookies, reuses them for all checks.
+ * Instagram status checker via imginn.com (third-party viewer).
+ * Bypasses Replit's IP block since imginn fetches from their own servers.
+ * Returns the same data shape the rest of bot.js expects.
  */
-const path = require('path');
-const fs   = require('fs');
+const axios = require('axios');
 
-const COOKIES_PATH = path.join(global.__basedir || __dirname, 'ig-cookies.json');
-const CHROME_PATH  = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.5',
+  'Connection': 'keep-alive',
+};
 
-const LAUNCH_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-  '--window-size=1280,800',
-];
-
-let _cookies = null; // in-memory cache
-
-function loadCookies() {
-  if (_cookies) return _cookies;
-  try {
-    _cookies = JSON.parse(fs.readFileSync(COOKIES_PATH, 'utf8'));
-    return _cookies;
-  } catch (_) {
-    return null;
-  }
+function parseCount(str) {
+  if (!str) return null;
+  const s = str.replace(/,/g, '').trim();
+  if (/k$/i.test(s)) return String(Math.round(parseFloat(s) * 1000));
+  if (/m$/i.test(s)) return String(Math.round(parseFloat(s) * 1_000_000));
+  if (/b$/i.test(s)) return String(Math.round(parseFloat(s) * 1_000_000_000));
+  return s;
 }
 
-function saveCookies(cookies) {
-  _cookies = cookies;
-  try { fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2)); } catch (_) {}
-}
-
-async function loginAndSaveCookies() {
-  const puppeteer = require('puppeteer');
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: CHROME_PATH,
-    args: LAUNCH_ARGS,
-  });
-
+async function fetchProfilePic(url) {
+  if (!url) return null;
   try {
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
-    await page.setViewport({ width: 1280, height: 800 });
-
-    console.log('[ig-session] Navigating to Instagram login...');
-    await page.goto('https://www.instagram.com/accounts/login/', {
-      waitUntil: 'networkidle2',
-      timeout: 60000,
+    const r = await axios.get(url, {
+      headers: HEADERS,
+      responseType: 'arraybuffer',
+      timeout: 10000,
+      validateStatus: () => true,
     });
-
-    // Dismiss cookie banner if present
-    try {
-      const acceptBtn = await page.$('button[tabindex="0"]');
-      if (acceptBtn) await acceptBtn.click();
-      await new Promise(r => setTimeout(r, 1000));
-    } catch (_) {}
-
-    // Wait for the login form
-    await page.waitForSelector('input[name="username"]', { timeout: 15000 });
-
-    // Type credentials
-    await page.type('input[name="username"]', process.env.IG_USERNAME || '', { delay: 80 });
-    await new Promise(r => setTimeout(r, 500));
-    await page.type('input[name="password"]', process.env.IG_PASSWORD || '', { delay: 80 });
-    await new Promise(r => setTimeout(r, 500));
-
-    // Submit
-    await page.click('button[type="submit"]');
-    console.log('[ig-session] Login submitted, waiting...');
-
-    // Wait for redirect away from login page
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
-    await new Promise(r => setTimeout(r, 3000));
-
-    const url = page.url();
-    console.log('[ig-session] After login URL:', url);
-
-    if (url.includes('/accounts/login/') || url.includes('/challenge/')) {
-      console.warn('[ig-session] Login may have failed or requires 2FA. URL:', url);
-      await browser.close();
-      return false;
-    }
-
-    const cookies = await page.cookies();
-    saveCookies(cookies);
-    console.log(`[ig-session] Logged in successfully. Saved ${cookies.length} cookies.`);
-    await browser.close();
-    return true;
-  } catch (err) {
-    console.error('[ig-session] Login error:', err.message);
-    await browser.close().catch(() => {});
-    return false;
-  }
+    if (r.status === 200) return Buffer.from(r.data);
+  } catch (_) {}
+  return null;
 }
 
+/**
+ * Fetch Instagram profile info for `username`.
+ * Returns { banned, followers, following, posts, profilePic, bio, isVerified }
+ * or null on fetch error.
+ */
 async function getPage(username) {
-  const puppeteer = require('puppeteer');
-  let cookies = loadCookies();
-
-  if (!cookies) {
-    console.log('[ig-session] No cookies found, logging in...');
-    const ok = await loginAndSaveCookies();
-    if (!ok) return null;
-    cookies = loadCookies();
-  }
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: CHROME_PATH,
-    args: LAUNCH_ARGS,
-  });
-
   try {
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
-    await page.setViewport({ width: 1280, height: 800 });
-
-    // Inject saved cookies
-    await page.setCookie(...cookies);
-
-    await page.goto(`https://www.instagram.com/${username}/`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
+    const url = `https://imginn.com/${encodeURIComponent(username)}/`;
+    const r = await axios.get(url, {
+      headers: HEADERS,
+      timeout: 20000,
+      validateStatus: () => true,
+      maxRedirects: 5,
     });
 
-    await new Promise(r => setTimeout(r, 4000));
+    console.log(`[ig] ${username} → imginn status ${r.status}`);
 
-    const result = await page.evaluate(() => {
-      const ogDesc = document.querySelector('meta[property="og:description"]');
-      const ogImg  = document.querySelector('meta[property="og:image"]');
-      const title  = document.title || '';
-      const url    = window.location.href;
-      const bodyTxt = document.body?.innerText?.slice(0, 500) || '';
-      return {
-        desc:    ogDesc ? ogDesc.getAttribute('content') : '',
-        img:     ogImg  ? ogImg.getAttribute('content')  : '',
-        title,
-        url,
-        bodyTxt,
-        loginPage: !!document.querySelector('input[name="username"]'),
-      };
-    });
-
-    // If we got kicked to login, cookies expired — clear and retry once
-    if (result.loginPage || result.url.includes('/accounts/login/')) {
-      console.log('[ig-session] Session expired, re-logging in...');
-      _cookies = null;
-      fs.unlink(COOKIES_PATH, () => {});
-      await browser.close();
-      const ok = await loginAndSaveCookies();
-      if (!ok) return null;
-      return getPage(username); // one retry
+    // 404 / 410 / 301 to home = banned or deleted account
+    if (r.status === 404 || r.status === 410) {
+      return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
     }
 
-    // Check for rate limit
-    if (result.url.includes('chromewebdata') || result.bodyTxt.includes('429')) {
-      console.warn('[ig-session] 429 rate limit hit even with session.');
-      await browser.close();
+    if (r.status !== 200) {
+      console.warn(`[ig] ${username} unexpected status ${r.status}`);
       return { rateLimited: true };
     }
 
-    // Fetch profile pic buffer
-    let profilePic = null;
-    if (result.img) {
-      try {
-        const b64 = await page.evaluate(async (url) => {
-          return new Promise((resolve) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', url, true);
-            xhr.responseType = 'arraybuffer';
-            xhr.onload = () => {
-              if (xhr.status === 200) {
-                const bytes = new Uint8Array(xhr.response);
-                let binary = '';
-                for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-                resolve(btoa(binary));
-              } else resolve(null);
-            };
-            xhr.onerror  = () => resolve(null);
-            xhr.ontimeout = () => resolve(null);
-            xhr.timeout  = 8000;
-            xhr.send();
-          });
-        }, result.img);
-        if (b64) profilePic = Buffer.from(b64, 'base64');
-      } catch (_) {}
+    const body = String(r.data);
+
+    // Check for "page not found" content
+    const titleMatch = body.match(/<title>([^<]*)<\/title>/i);
+    const title = titleMatch ? titleMatch[1] : '';
+    if (
+      title.toLowerCase().includes('page not found') ||
+      body.toLowerCase().includes("this account doesn") ||
+      body.toLowerCase().includes('user not found')
+    ) {
+      return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
     }
 
-    await browser.close();
-    return { ...result, profilePic };
+    // ── Parse follower / following / posts ─────────────────────────────
+    // imginn puts counts in a meta description or in spans near the word "Followers"
+    // Pattern: "123.4K Followers" or "123,456 Followers"
+    // imginn stats appear like: "513.9M Followers, 368 Following, 1528 Posts"
+    // We must match each label independently, anchored so "Following" doesn't
+    // accidentally grab the Followers number.
+    const numPat = '([\\d][\\d,\\.]*[KMBkmb]?)';
+    // Followers: number followed by optional whitespace/comma then "Followers" NOT "Following"
+    const fRaw   = body.match(new RegExp(numPat + '\\s*[Ff]ollowers(?!ing)', 'i'))?.[1]
+                || body.match(new RegExp(numPat + '[^<]{0,10}[Ff]ollowers(?!ing)', 'i'))?.[1]
+                || null;
+    // Following: grab the last number before the word "Following"
+    const foMatch = [...body.matchAll(new RegExp(numPat + '[^<]{0,5}[Ff]ollowing', 'gi'))];
+    const foRaw   = foMatch.length ? foMatch[foMatch.length - 1][1] : null;
+    const pRaw   = body.match(new RegExp(numPat + '[^<]{0,10}[Pp]osts?', 'i'))?.[1] || null;
+
+    const followers = fRaw  ? parseCount(fRaw)  : null;
+    const following = foRaw ? parseCount(foRaw) : null;
+    const posts     = pRaw  ? parseCount(pRaw)  : null;
+
+    console.log(`[ig] ${username} parsed: followers=${followers} following=${following} posts=${posts}`);
+
+    // ── Profile pic ────────────────────────────────────────────────────
+    const picUrl = body.match(/property="og:image"\s+content="([^"]+)"/i)?.[1]
+                || body.match(/name="og:image"\s+content="([^"]+)"/i)?.[1]
+                || null;
+    const profilePic = picUrl ? await fetchProfilePic(picUrl) : null;
+
+    // ── Bio ────────────────────────────────────────────────────────────
+    const bioMatch = body.match(/property="og:description"\s+content="([^"]*)"/i);
+    const bio = bioMatch ? bioMatch[1].replace(/&#\d+;/g, '').trim() : '';
+
+    // ── Verified ───────────────────────────────────────────────────────
+    const isVerified = /verified/i.test(body) && !body.toLowerCase().includes('not verified');
+
+    // If we have the page but zero data, treat as error not ban
+    if (!followers && !following && !posts) {
+      console.warn(`[ig] ${username} no stats parsed — possible scrape layout change`);
+      // Return non-banned with null counts so the bot doesn't falsely flag a ban
+      return { banned: false, followers: null, following: null, posts: null, profilePic, bio, isVerified };
+    }
+
+    return { banned: false, followers, following, posts, profilePic, bio, isVerified };
+
   } catch (err) {
-    console.error('[ig-session] getPage error:', err.message);
-    await browser.close().catch(() => {});
+    console.error(`[ig] ${username} fetch error:`, err.message);
     return null;
   }
 }
 
-module.exports = { getPage, loginAndSaveCookies, loadCookies };
+module.exports = { getPage };

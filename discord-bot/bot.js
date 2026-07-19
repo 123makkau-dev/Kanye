@@ -103,7 +103,7 @@ function parseNum(str) {
   return str.replace(/,/g, '');
 }
 
-// ─── Instagram check via logged-in session ───────────────────────────────────
+// ─── Instagram check via imginn.com (bypasses Replit IP block) ───────────────
 const igSession = require('./ig-session');
 
 async function checkOnce(username) {
@@ -111,45 +111,9 @@ async function checkOnce(username) {
     const data = await igSession.getPage(username);
     if (!data) return null;
     if (data.rateLimited) return null;
-
-    const raw = data.desc || '';
-    console.log(`[check] ${username} og:description:`, raw.substring(0, 100));
-    console.log(`[check] ${username} title:`, data.title);
-
-    // Detect banned: page says "not found" or "sorry" or no description at all
-    const bodyLow = (data.bodyTxt || '').toLowerCase();
-    const titleLow = (data.title || '').toLowerCase();
-    const notFound =
-      bodyLow.includes("sorry, this page isn't available") ||
-      bodyLow.includes('page not found') ||
-      titleLow.includes('page not found') ||
-      (data.url && data.url.includes('/404'));
-
-    if (notFound) {
-      console.log(`[check] ${username} → banned/not found`);
-      return { banned: true, followers: null, following: null, posts: null, profilePic: data.profilePic || null, bio: '', isVerified: false };
-    }
-
-    const numPat  = '([\\d,.]+[KMBkmb]?)';
-    const fMatch  = raw.match(new RegExp(numPat + '\\s*Followers?', 'i'));
-    const foMatch = raw.match(new RegExp(numPat + '\\s*Following', 'i'));
-    const pMatch  = raw.match(new RegExp(numPat + '\\s*Posts?', 'i'));
-
-    const followers = fMatch  ? parseNum(fMatch[1])  : null;
-    const following = foMatch ? parseNum(foMatch[1]) : null;
-    const posts     = pMatch  ? parseNum(pMatch[1])  : null;
-
-    console.log(`[check] ${username} parsed: followers=${followers}, following=${following}`);
-
-    // If we got no data at all and body is short, treat as error not ban
-    if (!followers && !following && raw.length === 0 && bodyLow.length < 100) {
-      console.warn(`[check] ${username} → no data, treating as fetch error`);
-      return null;
-    }
-
-    const banned = notFound || (!followers && !following && raw.length === 0);
-    return { banned, followers, following, posts, profilePic: data.profilePic || null, bio: '', isVerified: false };
-
+    // data is already fully parsed: { banned, followers, following, posts, profilePic, bio, isVerified }
+    console.log(`[check] ${username} → banned=${data.banned} followers=${data.followers} following=${data.following}`);
+    return data;
   } catch (err) {
     console.error(`[check] error for ${username}:`, err.message);
     return null;
