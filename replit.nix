@@ -1,5 +1,7 @@
 {pkgs}: {
   deps = [
+    pkgs.chromium
+    pkgs.libdrm
     pkgs.cups
     pkgs.expat
     pkgs.dbus
