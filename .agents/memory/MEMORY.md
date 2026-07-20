@@ -1,0 +1,2 @@
+- [Instagram via Tor architecture](ig-tor-arch.md) — Tor+session is the live-data path; business accounts (leomessi) always get 400 schema error and need /info/{id} fallback.
+- [IG session temp-ban pattern](ig-session-temp-ban.md) — session gets 401 "wait a few minutes" when many requests hit from multiple Tor exit nodes; recovers on its own in minutes; not permanent.
