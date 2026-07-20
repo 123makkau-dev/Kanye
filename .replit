@@ -2,10 +2,10 @@ modules = ["nodejs-24", "python-base-3.13"]
 
 [deployment]
 deploymentTarget = "vm"
-run = ["bash", "-c", "cd discord-bot && node index.js"]
+run = ["bash", "scripts/start-production.sh"]
 
 [deployment.postBuild]
-args = ["pnpm", "store", "prune"]
+args = ["bash", "-c", "pnpm store prune && cd discord-bot && npm install --production"]
 env = { "CI" = "true" }
 
 [workflows]
@@ -55,3 +55,7 @@ externalPort = 8080
 [[ports]]
 localPort = 8081
 externalPort = 80
+
+[[ports]]
+localPort = 25104
+externalPort = 3000

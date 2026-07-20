@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Bot Status"
+version = "1.0.0"
+id = "artifacts/status"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25104
+
+[services.development]
+run = "pnpm --filter @workspace/status run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/status", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/status/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25104"
+BASE_PATH = "/"
