@@ -33,6 +33,10 @@ function writeTorrc() {
     'ReachableAddresses *:80,*:443',
     'StrictNodes 0',
     'DisableNetwork 0',
+    // Keep circuits alive for 30 min (default ~10 min) to avoid constant IP changes
+    'MaxCircuitDirtiness 1800',
+    // Build more entry guards so we have more circuit options
+    'NumEntryGuards 8',
   ].join('\n') + '\n');
 }
 

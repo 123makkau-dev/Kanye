@@ -103,41 +103,52 @@ async function checkDumpor(username) {
 
 // ─── Primary: /api/v1/users/web_profile_info/ ─────────────────────────────────
 
-// Returns result object | { schemaError:true } | { sessionFlagged:true } | null
-async function callWebProfileInfo(username) {
-  const url = `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`;
-  let r = await torGet(url);
-  console.log(`[ig] web_profile_info/${username} → ${r.status}`);
+// Session-level cooldown: when Instagram flags our session (401), back off
+// for SESSION_COOLDOWN_MS so the rate-limit can reset before we try again.
+const SESSION_COOLDOWN_MS = 15 * 60 * 1000;  // 15 minutes
+let sessionCooldownUntil = 0;
 
-  // 429 — rotate circuit once
-  if (r.status === 429) {
-    console.warn(`[ig] 429 — rotating circuit`);
-    await torManager.newCircuit();
+// Returns result object | { schemaError:true } | null (blocked/cooldown)
+async function callWebProfileInfo(username) {
+  const now = Date.now();
+
+  // Respect session cooldown — don't make any calls until it expires
+  if (now < sessionCooldownUntil) {
+    const secsLeft = Math.round((sessionCooldownUntil - now) / 1000);
+    console.log(`[ig] Session cooldown active for ${username} — ${secsLeft}s remaining`);
+    return null;
+  }
+
+  const url = `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`;
+
+  // Strategy: rotate on 429 (IP blocked) up to 3 times; NEVER rotate on 401
+  // (401 = session flagged from IP-hopping — more rotation makes it worse)
+  let r;
+  for (let attempt = 1; attempt <= 4; attempt++) {
     r = await torGet(url);
-    console.log(`[ig] web_profile_info/${username} retry → ${r.status}`);
-    if (r.status === 429) return null;  // still blocked — skip tick
+    console.log(`[ig] web_profile_info/${username} (circuit ${attempt}) → ${r.status}`);
+    if (r.status !== 429) break;   // any non-429 is worth acting on
+    if (attempt < 4) {
+      console.warn(`[ig] 429 on circuit ${attempt} — rotating`);
+      await torManager.newCircuit();
+    }
+  }
+
+  // 401 = session flagged for IP-hopping — enter 15-min cooldown
+  if (r.status === 401) {
+    sessionCooldownUntil = Date.now() + SESSION_COOLDOWN_MS;
+    console.warn(`[ig] 401 — session flagged, entering 15-min cooldown until ${new Date(sessionCooldownUntil).toISOString()}`);
+    return null;
+  }
+
+  // Still 429 after 4 circuits = Instagram blocking all Tor exits right now
+  if (r.status === 429) {
+    console.warn(`[ig] 429 on all circuits for ${username} — deferring`);
+    return null;
   }
 
   if (r.status === 404) {
     return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
-  }
-
-  // 401 = IP rate-limited (Tor exit node flagged) — rotate circuit and retry once
-  if (r.status === 401) {
-    console.warn(`[ig] 401 — IP rate-limited, rotating circuit`);
-    await torManager.newCircuit();
-    r = await torGet(url);
-    console.log(`[ig] web_profile_info/${username} 401-retry → ${r.status}`);
-    // If still bad after rotation, fall through to return null below
-    if (r.status === 429 || r.status === 401) return null;
-    if (r.status === 404) {
-      return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
-    }
-    if (r.status === 400) {
-      return { schemaError: true };
-    }
-    if (r.status !== 200) return null;
-    // Fall through to 200 handling below
   }
 
   // 400 = server-side schema bug (affects professional/business accounts like leomessi)
@@ -206,18 +217,21 @@ async function getPage(username) {
   let result = null;
 
   if (canCallApi) {
-    lastApiCall.set(username, now);
     try {
       const primary = await callWebProfileInfo(username);
 
       if (primary === null) {
-        // Hard transient error — use cached result if available, otherwise defer
+        // All circuits blocked — do NOT update lastApiCall so next check retries immediately
+        console.warn(`[ig] ${username} — all circuits blocked, will retry next check`);
         if (cached) {
-          console.log(`[ig] ${username} — API error, returning stale cache`);
+          console.log(`[ig] ${username} — returning stale cache while circuits recover`);
           return cached.result;
         }
         return null;
       }
+
+      // Got a definitive answer — record call time to avoid hammering
+      lastApiCall.set(username, now);
 
       if (!primary.schemaError) {
         // Live data from Instagram API
