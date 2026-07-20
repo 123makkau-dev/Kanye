@@ -1,0 +1,27 @@
+[phases.setup]
+nixPkgs = [
+  # Tor — required for Instagram API routing
+  "tor",
+  # Build tools for native Node modules (@napi-rs/canvas)
+  "python3",
+  "gcc",
+  "gnumake",
+  # Canvas/Cairo rendering libraries for @napi-rs/canvas
+  "cairo",
+  "pango",
+  "libpng",
+  "libjpeg",
+  "giflib",
+  "librsvg",
+  "pixman",
+  "pkg-config",
+]
+
+[phases.install]
+cmds = ["npm install --production"]
+
+[phases.build]
+cmds = []
+
+[start]
+cmd = "node index.js"
