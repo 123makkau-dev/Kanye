@@ -26,7 +26,9 @@ function nextCooldownMs() {
 }
 
 function getSessionId() {
-  return decodeURIComponent(process.env.IG_SESSION_ID_TG || process.env.IG_SESSION_ID || '');
+  const sid = process.env.IG_SESSION_ID_TG;
+  if (!sid) { console.error('[ig-tg] IG_SESSION_ID_TG is not set — requests will be unauthenticated'); }
+  return decodeURIComponent(sid || '');
 }
 
 function makeAgent(circuit = 1) {

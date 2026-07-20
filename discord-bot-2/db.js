@@ -90,7 +90,7 @@ const UpdateChannel  = mongoose.model('UpdateChannel',  updateChannelSchema);
 
 // ─── Connect ──────────────────────────────────────────────────────────────────
 async function connect() {
-  const uris = [process.env.MONGODB_URI_2 || process.env.MONGODB_URI, process.env.MONGODB_URI_BACKUP_2 || process.env.MONGODB_URI_BACKUP].filter(Boolean);
+  const uris = [process.env.MONGODB_URI_2, process.env.MONGODB_URI_BACKUP_2].filter(Boolean);
   for (const uri of uris) {
     try {
       await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });

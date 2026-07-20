@@ -42,7 +42,9 @@ const userIdCache    = new Map();   // username → string user-id (from success
 const lastApiCall    = new Map();   // username → ts of most recent Instagram API attempt
 
 function sessionId() {
-  return decodeURIComponent(process.env.IG_SESSION_ID_2 || process.env.IG_SESSION_ID || '');
+  const sid = process.env.IG_SESSION_ID_2;
+  if (!sid) { console.error('[ig-bot2] IG_SESSION_ID_2 is not set — requests will be unauthenticated'); }
+  return decodeURIComponent(sid || '');
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
