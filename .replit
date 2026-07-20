@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "Discord Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Discord Bot 2"
+
 [[workflows.workflow]]
 name = "Discord Bot"
 author = "agent"
@@ -27,6 +31,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd discord-bot && node index.js"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Discord Bot 2"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd discord-bot-2 && npm install && node index.js"
 
 [workflows.workflow.metadata]
 outputType = "console"
