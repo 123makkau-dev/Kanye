@@ -640,15 +640,7 @@ client.on('messageCreate', async (message) => {
     ]});
   }
 
-  // Guild access check — owners bypass always, DMs bypass
-  if (message.guild && !isOwner) {
-    const guildOk = await db.hasGuildAccess(message.guild.id);
-    console.log(`[cmd] guildAccess=${guildOk} for ${message.guild.id}`);
-    if (!guildOk) {
-      // Allow guildaccess command even without access so owner can authorize
-      if (command !== 'guildaccess') return;
-    }
-  }
+  // Guild access check removed — Bot 2 is a private team bot, all guilds it joins are trusted.
 
   // ── mon / moff — maintenance mode ────────────────────────────────────────────
   if (command === 'mon') {
