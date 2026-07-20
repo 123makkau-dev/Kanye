@@ -71,7 +71,7 @@ loadChannels();
 const activeWatches = new Map();
 
 // Dynamic settings
-let PREFIX        = ',';
+let PREFIX        = '!';
 let checkInterval = parseInt(process.env.CHECK_INTERVAL) || 40000;
 
 const BOT_START     = Date.now();
