@@ -792,7 +792,15 @@ client.on('messageCreate', async (message) => {
     }
 
     const checking = await message.channel.send({ embeds: [new EmbedBuilder().setDescription(`${EM.load} Checking **@${username}**...`).setColor(0xFFFFFF)] });
-    const info      = await check(username);
+    igSession.clearCache(username);
+    let info = await check(username);
+    // If first result says banned, wait 4s and verify once more to avoid false positives
+    if (info && info.banned) {
+      await new Promise(r => setTimeout(r, 4000));
+      igSession.clearCache(username);
+      const info2 = await check(username);
+      if (info2) info = info2; // use the fresher result
+    }
     const startTime = Date.now();
     await checking.delete().catch(() => {});
 
