@@ -9,10 +9,10 @@ const { spawn, execSync } = require('child_process');
 const fs  = require('fs');
 const net = require('net');
 
-const SOCKS_PORT   = 9050;
-const CONTROL_PORT = 9051;
-const TOR_DATA     = '/tmp/tor-bot-data';
-const TORRC_PATH   = '/tmp/torrc-bot';
+const SOCKS_PORT   = 9052;
+const CONTROL_PORT = 9053;
+const TOR_DATA     = '/tmp/tor-bot2-data';
+const TORRC_PATH   = '/tmp/torrc-bot2';
 
 let torProc       = null;
 let _isReady      = false;
