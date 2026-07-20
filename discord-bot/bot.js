@@ -72,7 +72,7 @@ const activeWatches = new Map();
 
 // Dynamic settings
 let PREFIX        = ',';
-let checkInterval = parseInt(process.env.CHECK_INTERVAL) || 90000;
+let checkInterval = parseInt(process.env.CHECK_INTERVAL) || 40000;
 
 const BOT_START     = Date.now();
 const pausedWatches = new Set();
