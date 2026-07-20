@@ -1,6 +1,5 @@
 #!/bin/bash
-# Start the Discord bot in the background
-node discord-bot/index.js &
-
-# Start the API server as the main foreground process (keeps the container alive)
+# Production only runs the API server (status page backend).
+# Discord/Telegram bots run as separate Replit workflows — running them here
+# too would create duplicate bot instances with the same token → double responses.
 exec node --enable-source-maps artifacts/api-server/dist/index.mjs
