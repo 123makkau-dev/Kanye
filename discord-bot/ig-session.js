@@ -122,10 +122,22 @@ async function callWebProfileInfo(username) {
     return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
   }
 
-  // 401 = session flagged by Instagram (IP-hop via Tor circuit rotation)
+  // 401 = IP rate-limited (Tor exit node flagged) — rotate circuit and retry once
   if (r.status === 401) {
-    console.warn(`[ig] 401 — session flagged, falling back`);
-    return { sessionFlagged: true };
+    console.warn(`[ig] 401 — IP rate-limited, rotating circuit`);
+    await torManager.newCircuit();
+    r = await torGet(url);
+    console.log(`[ig] web_profile_info/${username} 401-retry → ${r.status}`);
+    // If still bad after rotation, fall through to return null below
+    if (r.status === 429 || r.status === 401) return null;
+    if (r.status === 404) {
+      return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
+    }
+    if (r.status === 400) {
+      return { schemaError: true };
+    }
+    if (r.status !== 200) return null;
+    // Fall through to 200 handling below
   }
 
   // 400 = server-side schema bug (affects professional/business accounts like leomessi)
@@ -207,38 +219,31 @@ async function getPage(username) {
         return null;
       }
 
-      if (!primary.schemaError && !primary.sessionFlagged) {
-        // Great — live data from Instagram
+      if (!primary.schemaError) {
+        // Live data from Instagram API
         result = primary;
       } else {
-        // schema error (400) or session flagged (401)
-        // Determine ban status via dumpor, then enrich with what we can
-        const bannedViaDumpor = await checkDumpor(username);
-
-        if (bannedViaDumpor === true) {
-          result = { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
-        } else {
-          // Account is active — try to get profile pic via cached/known user ID
-          const userId = userIdCache.get(username) || KNOWN_USER_IDS[username.toLowerCase()];
-          let profilePic = null;
-          if (userId && torManager.isReady) {
-            console.log(`[ig] ${username} — fetching pic via /info/${userId}`);
-            profilePic = await fetchPicById(userId);
-          }
-
-          // For stats: use last cached stats if available, otherwise null
-          const prevStats = cached?.result && !cached.result.banned ? cached.result : null;
-          result = {
-            banned:     false,
-            followers:  prevStats?.followers  ?? null,
-            following:  prevStats?.following  ?? null,
-            posts:      prevStats?.posts      ?? null,
-            profilePic: profilePic,
-            bio:        prevStats?.bio        ?? '',
-            isVerified: prevStats?.isVerified ?? false,
-          };
-          console.log(`[ig] ${username} — active via dumpor (schemaErr/401), stats: ${result.followers ?? '?'} followers`);
+        // 400 schema error — account exists but IG API can't return full data (business account bug).
+        // DO NOT trust dumpor's 200 for active status — dumpor caches old pages for banned accounts.
+        // The Instagram 400 itself confirms the account is active (banned accounts get 404, not 400).
+        const userId = userIdCache.get(username) || KNOWN_USER_IDS[username.toLowerCase()];
+        let profilePic = null;
+        if (userId && torManager.isReady) {
+          console.log(`[ig] ${username} — fetching pic via /info/${userId}`);
+          profilePic = await fetchPicById(userId);
         }
+        // Use last known stats from cache if available
+        const prevStats = cached?.result && !cached.result.banned ? cached.result : null;
+        result = {
+          banned:     false,
+          followers:  prevStats?.followers  ?? null,
+          following:  prevStats?.following  ?? null,
+          posts:      prevStats?.posts      ?? null,
+          profilePic: profilePic,
+          bio:        prevStats?.bio        ?? '',
+          isVerified: prevStats?.isVerified ?? false,
+        };
+        console.log(`[ig] ${username} — active (400 schema), stats: ${result.followers ?? '?'}`);
       }
     } catch (err) {
       console.error(`[ig] ${username} exception: ${err.message}`);
@@ -246,23 +251,24 @@ async function getPage(username) {
       return null;
     }
   } else {
-    // Tor not ready or within rate-limit window — use dumpor for ban check
+    // Cannot call API (Tor not ready or within rate-limit window) — return cache if available
     if (!torManager.isReady) {
-      console.warn(`[ig] ${username} — Tor not ready, using dumpor`);
+      console.warn(`[ig] ${username} — Tor not ready, returning cache`);
     } else {
-      console.log(`[ig] ${username} — rate-limited, using dumpor`);
+      console.log(`[ig] ${username} — rate-limited (${Math.round((MIN_CALL_INTERVAL - (now - (lastApiCall.get(username) ?? 0))) / 1000)}s remaining), returning cache`);
     }
-    const bannedViaDumpor = await checkDumpor(username);
-    if (bannedViaDumpor === null && cached) return cached.result;  // dumpor unavailable, use cache
-    const prevStats = cached?.result;
+    if (cached) return cached.result;
+    // No cache and can't call API — last resort: use dumpor for rough ban check only
+    // Only treat dumpor 404 as banned; 200 is NOT reliable (shows cached pages for banned accounts)
+    const dumpor404 = await checkDumpor(username);
     result = {
-      banned:     bannedViaDumpor ?? false,
-      followers:  prevStats?.followers  ?? null,
-      following:  prevStats?.following  ?? null,
-      posts:      prevStats?.posts      ?? null,
+      banned:     dumpor404 === true,   // only mark banned if dumpor explicitly 404s
+      followers:  null,
+      following:  null,
+      posts:      null,
       profilePic: null,
-      bio:        prevStats?.bio        ?? '',
-      isVerified: prevStats?.isVerified ?? false,
+      bio:        '',
+      isVerified: false,
     };
   }
 
