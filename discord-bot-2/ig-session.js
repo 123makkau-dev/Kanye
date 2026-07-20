@@ -41,7 +41,7 @@ const userIdCache  = new Map();   // username → string user-id (from successfu
 const lastApiCall  = new Map();   // username → ts of most recent Instagram API attempt
 
 function sessionId() {
-  return decodeURIComponent(process.env.IG_SESSION_ID || '');
+  return decodeURIComponent(process.env.IG_SESSION_ID_2 || process.env.IG_SESSION_ID || '');
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
