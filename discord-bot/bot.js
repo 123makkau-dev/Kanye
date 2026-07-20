@@ -473,6 +473,7 @@ client.once('clientReady', async () => {
       const intv = setInterval(async () => {
         try {
           if (pausedWatches.has(`ban_${username}`)) return;
+          igSession.clearCache(username);
           const infoa = await check(username);
           if (!infoa) return; // network error � skip this tick
           if (infoa.banned) {
@@ -494,6 +495,7 @@ client.once('clientReady', async () => {
       const intv = setInterval(async () => {
         try {
           if (pausedWatches.has(`unban_${username}`)) return;
+          igSession.clearCache(username);
           const infoa = await check(username);
           if (!infoa) return; // network error � skip this tick
           if (!infoa.banned && !sent) {
@@ -519,6 +521,7 @@ client.once('clientReady', async () => {
       const tracks = await db.getFollowerTracks();
       for (const track of tracks) {
         try {
+          igSession.clearCache(track.username);
           const info = await check(track.username);
           if (!info || !info.followers) continue;
           const current = parseInt(info.followers), previous = track.followers;
@@ -543,6 +546,7 @@ client.once('clientReady', async () => {
       const tracks = await db.getVerifyTracks();
       for (const track of tracks) {
         try {
+          igSession.clearCache(track.username);
           const info = await check(track.username);
           if (!info) continue; // network error — skip
           if (info.isVerified) {
@@ -806,6 +810,7 @@ client.on('messageCreate', async (message) => {
 
       const intv = setInterval(async () => {
         try {
+          igSession.clearCache(username);
           const infoa = await check(username);
           if (!infoa) return; // network error � skip this tick
           if (infoa.banned) {
@@ -836,6 +841,7 @@ client.on('messageCreate', async (message) => {
       let sent = false;
       const intv = setInterval(async () => {
         try {
+          igSession.clearCache(username);
           const infoa = await check(username);
           if (!infoa) return; // network error � skip this tick
           if (!infoa.banned && !sent) {
@@ -882,6 +888,7 @@ client.on('messageCreate', async (message) => {
 
     const intv = setInterval(async () => {
       try {
+        igSession.clearCache(username);
         const infoa = await check(username);
         if (!infoa) return; // network error � skip this tick
         if (infoa.banned) {
@@ -927,6 +934,7 @@ client.on('messageCreate', async (message) => {
     let sent = false;
     const intv = setInterval(async () => {
       try {
+        igSession.clearCache(username);
         const infoa = await check(username);
         if (!infoa) return; // network error � skip this tick
         if (!infoa.banned && !sent) {
@@ -1207,6 +1215,7 @@ client.on('messageCreate', async (message) => {
         const intv = setInterval(async () => {
           try {
             if (pausedWatches.has(`ban_${username}`)) return;
+            igSession.clearCache(username);
             const infoa = await check(username);
             if (!infoa) return; // network error � skip this tick
             if (infoa.banned) {
@@ -1227,6 +1236,7 @@ client.on('messageCreate', async (message) => {
         const intv = setInterval(async () => {
           try {
             if (pausedWatches.has(`unban_${username}`)) return;
+            igSession.clearCache(username);
             const infoa = await check(username);
             if (!infoa) return; // network error � skip this tick
             if (!infoa.banned && !sent) {

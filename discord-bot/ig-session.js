@@ -293,4 +293,10 @@ async function getPage(username) {
   return result;
 }
 
-module.exports = { getPage };
+// Force a fresh API call next time getPage() is called for this username
+function clearCache(username) {
+  resultCache.delete(username);
+  lastApiCall.delete(username);
+}
+
+module.exports = { getPage, clearCache };
