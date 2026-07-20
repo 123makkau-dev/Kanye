@@ -148,9 +148,10 @@ function formatTimeTaken(startTime) {
 }
 
 function fmtNum(n) {
-  if (!n) return '0';
+  if (n === null || n === undefined) return '?';
   const num = parseInt(n);
-  if (isNaN(num)) return '0';
+  if (isNaN(num)) return '?';
+  if (num === 0) return '0';
   if (num >= 1000000000) return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
   if (num >= 1000000)    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (num >= 1000)       return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
@@ -404,8 +405,8 @@ async function takeScreenshot(username, followers, following, profilePicUrl, pos
 // Send recovered embed
 async function sendRecoveredEmbed(channel, username, followers, following, timeTaken, profilePic, posts, bio) {
   const pingText = channelConfig.pingRoleId ? `<@&${channelConfig.pingRoleId}> ` : '';
-  const f  = followers ? parseInt(followers).toLocaleString() : '0';
-  const fo = following ? parseInt(following).toLocaleString() : '0';
+  const f  = followers != null ? parseInt(followers).toLocaleString() : '?';
+  const fo = following != null ? parseInt(following).toLocaleString() : '?';
 
   // Text outside embed — italic style like screenshot
   await channel.send(
@@ -426,8 +427,8 @@ async function sendRecoveredEmbed(channel, username, followers, following, timeT
 // Send banned embed
 async function sendBannedEmbed(channel, username, timeTaken, profilePic, followers, following, posts, bio) {
   const pingText = channelConfig.pingRoleId ? `<@&${channelConfig.pingRoleId}> ` : '';
-  const f  = followers ? parseInt(followers).toLocaleString() : '0';
-  const fo = following ? parseInt(following).toLocaleString() : '0';
+  const f  = followers != null ? parseInt(followers).toLocaleString() : '?';
+  const fo = following != null ? parseInt(following).toLocaleString() : '?';
 
   // Text outside embed — italic style
   await channel.send(
@@ -519,7 +520,7 @@ client.once('clientReady', async () => {
       for (const track of tracks) {
         try {
           const info = await check(track.username);
-          if (!info.followers) continue;
+          if (!info || !info.followers) continue;
           const current = parseInt(info.followers), previous = track.followers;
           const diff = Math.abs(current - previous);
           if (diff >= track.threshold) {

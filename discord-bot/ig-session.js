@@ -102,6 +102,12 @@ async function checkImginn(username) {
               ?? body.match(/name="og:description"\s+content="([^"]*)"/i)?.[1]
               ?? '';
 
+  // If imginn's cached data is stale it puts literal "undefined" in the description
+  if (ogDesc.includes('undefined')) {
+    console.warn(`[ig] imginn/${username} — stale/undefined data, falling back to dumpor`);
+    return { notIndexed: true };
+  }
+
   const { followers, following, posts } = parseImginnDesc(ogDesc);
   console.log(`[ig] imginn/${username} parsed → f=${followers} fo=${following} p=${posts}`);
 
