@@ -11,11 +11,19 @@ const CACHE_TTL        = 5 * 60 * 1000;   // 5 min result cache
 const MIN_CALL_INTERVAL = 60 * 1000;      // 60 s per-account rate limit
 const SESSION_COOLDOWN_MS = 15 * 60 * 1000; // 15 min on 401
 
-const resultCache = new Map();
-const lastApiCall = new Map();
-const userIdCache = new Map();
+const resultCache   = new Map();
+const lastKnownGood = new Map();   // never cleared — last successful API result
+const lastApiCall   = new Map();
+const userIdCache   = new Map();
 
 let sessionCooldownUntil = 0;
+let consecutive401s      = 0;
+
+const BASE_COOLDOWN_MS = 15 * 60 * 1000;
+const MAX_COOLDOWN_MS  =  4 * 60 * 60 * 1000;
+function nextCooldownMs() {
+  return Math.min(BASE_COOLDOWN_MS * Math.pow(2, consecutive401s), MAX_COOLDOWN_MS);
+}
 
 function getSessionId() {
   return decodeURIComponent(process.env.IG_SESSION_ID_TG || process.env.IG_SESSION_ID || '');
@@ -85,8 +93,10 @@ async function fetchFromIG(username, circuit = 1) {
     console.log(`[ig-tg] web_profile_info/${username} (circuit ${circuit}) → ${r.status}`);
 
     if (r.status === 401) {
-      sessionCooldownUntil = Date.now() + SESSION_COOLDOWN_MS;
-      console.warn(`[ig-tg] 401 — session flagged, cooldown until ${new Date(sessionCooldownUntil).toISOString()}`);
+      consecutive401s++;
+      const ms = nextCooldownMs();
+      sessionCooldownUntil = Date.now() + ms;
+      console.warn(`[ig-tg] 401 (streak=${consecutive401s}) — cooldown ${Math.round(ms/60000)}m until ${new Date(sessionCooldownUntil).toISOString()}`);
       return null;
     }
     if (r.status === 429) {
@@ -181,10 +191,14 @@ async function getPage(username) {
 
       if (!primary.schemaError) {
         result = primary;
+        lastKnownGood.set(username, result);  // persist as never-cleared fallback
+        consecutive401s = 0;                  // reset backoff streak on success
       } else {
         // 400 schema error — business account
         let profilePic = await fetchInfoById(username);
-        const prevStats = cached?.result && !cached.result.banned ? cached.result : null;
+        const prevStats = cached?.result && !cached.result.banned
+          ? cached.result
+          : lastKnownGood.get(username) ?? null;
         result = {
           banned:     false,
           followers:  prevStats?.followers  ?? null,
@@ -197,10 +211,16 @@ async function getPage(username) {
       }
     } catch (err) {
       console.error(`[ig-tg] ${username} exception: ${err.message}`);
-      return null;
+      const fallback = cached?.result ?? lastKnownGood.get(username) ?? null;
+      return fallback;
     }
   } else {
     if (cached) return cached.result;
+    const lkg = lastKnownGood.get(username);
+    if (lkg) {
+      console.log(`[ig-tg] ${username} — rate-limited, returning last known good`);
+      return lkg;
+    }
     const dumpor404 = await checkDumpor(username);
     return {
       banned:    dumpor404 === true,

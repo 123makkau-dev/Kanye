@@ -36,9 +36,10 @@ const KNOWN_USER_IDS = {
 
 // ─── In-process stores ────────────────────────────────────────────────────────
 
-const resultCache  = new Map();   // username → { result, ts }
-const userIdCache  = new Map();   // username → string user-id (from successful API calls)
-const lastApiCall  = new Map();   // username → ts of most recent Instagram API attempt
+const resultCache    = new Map();   // username → { result, ts }  (cleared by clearCache)
+const lastKnownGood  = new Map();   // username → result          (NEVER cleared — last successful API result)
+const userIdCache    = new Map();   // username → string user-id (from successful API calls)
+const lastApiCall    = new Map();   // username → ts of most recent Instagram API attempt
 
 function sessionId() {
   return decodeURIComponent(process.env.IG_SESSION_ID_2 || process.env.IG_SESSION_ID || '');
@@ -103,10 +104,18 @@ async function checkDumpor(username) {
 
 // ─── Primary: /api/v1/users/web_profile_info/ ─────────────────────────────────
 
-// Session-level cooldown: when Instagram flags our session (401), back off
-// for SESSION_COOLDOWN_MS so the rate-limit can reset before we try again.
-const SESSION_COOLDOWN_MS = 15 * 60 * 1000;  // 15 minutes
+const BASE_COOLDOWN_MS = 15 * 60 * 1000;
+const MAX_COOLDOWN_MS  =  4 * 60 * 60 * 1000;
 let sessionCooldownUntil = 0;
+let consecutive401s      = 0;
+
+function nextCooldownMs() {
+  return Math.min(BASE_COOLDOWN_MS * Math.pow(2, consecutive401s), MAX_COOLDOWN_MS);
+}
+
+function saveLastKnownGood(username, result) {
+  if (result && !result.schemaError) lastKnownGood.set(username, result);
+}
 
 // Returns result object | { schemaError:true } | null (blocked/cooldown)
 async function callWebProfileInfo(username) {
@@ -134,10 +143,13 @@ async function callWebProfileInfo(username) {
     }
   }
 
-  // 401 = session flagged for IP-hopping — enter 15-min cooldown
+  // 401 = session flagged — exponential backoff so the session gets time to heal
   if (r.status === 401) {
-    sessionCooldownUntil = Date.now() + SESSION_COOLDOWN_MS;
-    console.warn(`[ig] 401 — session flagged, entering 15-min cooldown until ${new Date(sessionCooldownUntil).toISOString()}`);
+    consecutive401s++;
+    const cooldownMs = nextCooldownMs();
+    sessionCooldownUntil = Date.now() + cooldownMs;
+    const mins = Math.round(cooldownMs / 60000);
+    console.warn(`[ig] 401 (streak=${consecutive401s}) — cooldown ${mins}m until ${new Date(sessionCooldownUntil).toISOString()}`);
     return null;
   }
 
@@ -163,13 +175,14 @@ async function callWebProfileInfo(username) {
     return null;
   }
 
+  // Successful response — reset backoff streak
+  consecutive401s = 0;
+
   const user = r.data?.data?.user;
   if (!user) {
-    // 200 + null user = account suspended/banned
     return { banned: true, followers: null, following: null, posts: null, profilePic: null, bio: '', isVerified: false };
   }
 
-  // Cache user ID for later fallback use
   if (user.id) userIdCache.set(username, String(user.id));
 
   const followers  = String(user.edge_followed_by?.count ?? '');
@@ -178,8 +191,6 @@ async function callWebProfileInfo(username) {
   const bio        = user.biography || '';
   const isVerified = !!user.is_verified;
   const picUrl     = user.profile_pic_url_hd || user.profile_pic_url || null;
-
-  // Fetch profile pic through Tor (signed CDN URLs are IP-locked)
   const profilePic = picUrl ? await fetchBuf(picUrl, true) : null;
 
   return { banned: false, followers, following, posts, profilePic, bio, isVerified };
@@ -221,33 +232,31 @@ async function getPage(username) {
       const primary = await callWebProfileInfo(username);
 
       if (primary === null) {
-        // All circuits blocked — do NOT update lastApiCall so next check retries immediately
-        console.warn(`[ig] ${username} — all circuits blocked, will retry next check`);
-        if (cached) {
-          console.log(`[ig] ${username} — returning stale cache while circuits recover`);
-          return cached.result;
+        // Session cooldown or all circuits blocked — use best available fallback
+        const fallback = cached?.result ?? lastKnownGood.get(username) ?? null;
+        if (fallback) {
+          const src = cached ? 'stale cache' : 'last known good';
+          console.log(`[ig] ${username} — blocked, returning ${src}`);
+          return fallback;
         }
+        console.warn(`[ig] ${username} — blocked, no fallback available`);
         return null;
       }
 
-      // Got a definitive answer — record call time to avoid hammering
       lastApiCall.set(username, now);
 
       if (!primary.schemaError) {
-        // Live data from Instagram API
         result = primary;
+        saveLastKnownGood(username, result);
       } else {
-        // 400 schema error — account exists but IG API can't return full data (business account bug).
-        // DO NOT trust dumpor's 200 for active status — dumpor caches old pages for banned accounts.
-        // The Instagram 400 itself confirms the account is active (banned accounts get 404, not 400).
         const userId = userIdCache.get(username) || KNOWN_USER_IDS[username.toLowerCase()];
         let profilePic = null;
         if (userId && torManager.isReady) {
           console.log(`[ig] ${username} — fetching pic via /info/${userId}`);
           profilePic = await fetchPicById(userId);
         }
-        // Use last known stats from cache if available
-        const prevStats = cached?.result && !cached.result.banned ? cached.result : null;
+        const prevStats = (cached?.result && !cached.result.banned ? cached.result : null)
+                       ?? lastKnownGood.get(username) ?? null;
         result = {
           banned:     false,
           followers:  prevStats?.followers  ?? null,
@@ -261,28 +270,21 @@ async function getPage(username) {
       }
     } catch (err) {
       console.error(`[ig] ${username} exception: ${err.message}`);
-      if (cached) return cached.result;
-      return null;
+      return cached?.result ?? lastKnownGood.get(username) ?? null;
     }
   } else {
-    // Cannot call API (Tor not ready or within rate-limit window) — return cache if available
     if (!torManager.isReady) {
-      console.warn(`[ig] ${username} — Tor not ready, returning cache`);
+      console.warn(`[ig] ${username} — Tor not ready, returning fallback`);
     } else {
-      console.log(`[ig] ${username} — rate-limited (${Math.round((MIN_CALL_INTERVAL - (now - (lastApiCall.get(username) ?? 0))) / 1000)}s remaining), returning cache`);
+      console.log(`[ig] ${username} — rate-limited, returning fallback`);
     }
-    if (cached) return cached.result;
-    // No cache and can't call API — last resort: use dumpor for rough ban check only
-    // Only treat dumpor 404 as banned; 200 is NOT reliable (shows cached pages for banned accounts)
+    const fallback = cached?.result ?? lastKnownGood.get(username) ?? null;
+    if (fallback) return fallback;
     const dumpor404 = await checkDumpor(username);
     result = {
-      banned:     dumpor404 === true,   // only mark banned if dumpor explicitly 404s
-      followers:  null,
-      following:  null,
-      posts:      null,
-      profilePic: null,
-      bio:        '',
-      isVerified: false,
+      banned:     dumpor404 === true,
+      followers:  null, following: null, posts: null,
+      profilePic: null, bio: '', isVerified: false,
     };
   }
 
