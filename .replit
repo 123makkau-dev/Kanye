@@ -1,8 +1,8 @@
 modules = ["nodejs-24", "python-base-3.13"]
 
 [deployment]
-router = "application"
-deploymentTarget = "autoscale"
+deploymentTarget = "vm"
+run = ["bash", "-c", "cd discord-bot && node index.js"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
