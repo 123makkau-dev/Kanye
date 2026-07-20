@@ -131,6 +131,18 @@ async function check(username, retries = 2) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Returns a descriptive error embed description when a fetch returns null,
+// explaining cooldown if that's why — instead of a generic "may be blocking" message.
+function fetchErrorDesc(username) {
+  const secs = igSession.getCooldownRemaining();
+  if (secs > 0) {
+    const mins = Math.ceil(secs / 60);
+    return `Instagram flagged our session. Cooling down — try again in **${mins} minute${mins !== 1 ? 's' : ''}**.`;
+  }
+  return `Could not fetch **@${username}**. Instagram may be rate-limiting. Try again in a moment.`;
+}
+
 function formatTimestamp(date) {
   return `<t:${Math.floor(date.getTime() / 1000)}:f>`;
 }
@@ -803,7 +815,7 @@ client.on('messageCreate', async (message) => {
     const startTime = Date.now();
     await checking.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`Could not fetch **@${username}**. Instagram may be blocking requests. Try again.`).setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     if (!info.banned) {
       await db.addAccount(username, message.channel.id, 'active', info.followers, message.guild?.id);
@@ -880,7 +892,7 @@ client.on('messageCreate', async (message) => {
     const startTime = Date.now();
     await checking.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`Could not fetch **@${username}**. Try again.`).setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     if (info.banned) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Already Banned').setDescription(`Use \`${PREFIX}unbanwatch ${username}\` instead.`).setColor(0xFFFFFF)] });
 
@@ -925,7 +937,7 @@ client.on('messageCreate', async (message) => {
     const startTime = Date.now();
     await checking.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`Could not fetch **@${username}**. Try again.`).setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     if (!info.banned) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Not Banned').setDescription(`Use \`${PREFIX}banwatch ${username}\` instead.`).setColor(0xFFFFFF)] });
 
@@ -1041,7 +1053,7 @@ client.on('messageCreate', async (message) => {
     const info = await check(username);
     await checking.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`Could not fetch **@${username}**. Try again.`).setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     const acc = await db.getAccount(username);
     const watching = activeWatches.has(`ban_${username}`) || activeWatches.has(`unban_${username}`);
@@ -1068,7 +1080,7 @@ client.on('messageCreate', async (message) => {
     const info    = await check(username);
     await loading.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`Could not fetch **@${username}**. Instagram may be blocking. Try again.`).setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     if (info.banned) {
       return message.channel.send({ embeds: [new EmbedBuilder().setTitle(`${EM.banned} Banned | @${username}`).setDescription('This account is currently banned.').setColor(0xFFFFFF)] });
@@ -1147,7 +1159,7 @@ client.on('messageCreate', async (message) => {
     const info = await check(username);
     await checking.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription('Could not fetch account. Try again.').setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     // Already verified — don't add
     if (info.isVerified) {
@@ -1294,7 +1306,7 @@ client.on('messageCreate', async (message) => {
     const info = await check(username);
     await checking.delete().catch(() => {});
 
-    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`Could not fetch **@${username}**. Try again.`).setColor(0xFFFFFF)] });
+    if (!info) return message.channel.send({ embeds: [new EmbedBuilder().setTitle('❌ Error').setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
 
     await db.addFollowerTrack(username, message.channel.id, info.followers, threshold, message.guild?.id);
     return message.channel.send({ embeds: [
@@ -1406,7 +1418,7 @@ client.on('messageCreate', async (message) => {
     setTimeout(async () => {
       const info = await check(username);
       if (!info) {
-        return message.channel.send({ embeds: [new EmbedBuilder().setTitle(`⏰ Reminder | @${username}`).setDescription('Could not fetch account status. Try again.').setColor(0xFFFFFF)] });
+        return message.channel.send({ embeds: [new EmbedBuilder().setTitle(`⏰ Reminder | @${username}`).setDescription(`${fetchErrorDesc(username)}`).setColor(0xFFFFFF)] });
       }
       await message.channel.send({ embeds: [
         new EmbedBuilder()

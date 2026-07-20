@@ -299,4 +299,10 @@ function clearCache(username) {
   lastApiCall.delete(username);
 }
 
-module.exports = { getPage, clearCache };
+// Returns seconds remaining in session cooldown, or 0 if not in cooldown
+function getCooldownRemaining() {
+  const remaining = sessionCooldownUntil - Date.now();
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+}
+
+module.exports = { getPage, clearCache, getCooldownRemaining };
