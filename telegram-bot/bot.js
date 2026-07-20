@@ -266,13 +266,20 @@ async function checkOnce(username) {
   }
 }
 
-async function check(username, retries = 2) {
+async function check(username, retries = 3) {
   for (let i = 0; i < retries; i++) {
     const result = await checkOnce(username);
-    if (result !== null) return result;
-    if (i < retries - 1) await new Promise(r => setTimeout(r, 3000));
+    // Accept result only if stats are populated, or if it's a ban confirmation
+    if (result !== null && (result.banned || result.followers !== null)) return result;
+    // Got a result but no stats — wait longer then retry so rate limit clears
+    if (result !== null && i < retries - 1) {
+      await new Promise(r => setTimeout(r, 8000));
+      continue;
+    }
+    if (result === null && i < retries - 1) await new Promise(r => setTimeout(r, 5000));
   }
-  return null;
+  // Return whatever we have even if stats are null (at least shows ban status)
+  return await checkOnce(username);
 }
 
 // ─── Monitoring loop ──────────────────────────────────────────────────────────
@@ -397,14 +404,21 @@ bot.command('check', async (ctx) => {
     ? `🔴 <b>BANNED</b>`
     : `🟢 <b>Active</b>${info.isVerified ? ' ✅ Verified' : ''}`;
 
+  const hasStats = info.followers !== null || info.following !== null || info.posts !== null;
+
   const caption =
     `${statusLine}\n` +
     `👤 <b>@${username}</b>\n` +
-    `👥 Followers: ${fmtNum(info.followers)}\n` +
-    `➡️ Following: ${fmtNum(info.following)}\n` +
-    `📸 Posts: ${fmtNum(info.posts)}`;
+    (hasStats
+      ? `👥 Followers: ${fmtNum(info.followers)}\n` +
+        `➡️ Following: ${fmtNum(info.following)}\n` +
+        `📸 Posts: ${fmtNum(info.posts)}`
+      : `⚠️ <i>Stats unavailable — Instagram rate-limited. Try again in a moment.</i>`);
 
-  const buf = await takeScreenshot(username, info.followers, info.following, info.profilePic, info.posts, info.bio, info.isVerified);
+  // Only send the canvas card when we have real stats — all-? cards are misleading
+  const buf = hasStats
+    ? await takeScreenshot(username, info.followers, info.following, info.profilePic, info.posts, info.bio, info.isVerified)
+    : null;
 
   await ctx.telegram.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {});
 

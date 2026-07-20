@@ -166,15 +166,18 @@ async function getPage(username) {
   let result = null;
 
   if (canCallApi) {
-    lastApiCall.set(username, now);
     try {
       const primary = await fetchFromIG(username);
 
       if (primary === null) {
+        // API call failed (429/timeout) — don't lock rate limit so next retry can try again
         if (!cached) return null;
         console.log(`[ig-tg] ${username} — API blocked, using cache`);
         return cached.result;
       }
+
+      // Successful API response — now stamp the rate limit timer
+      lastApiCall.set(username, now);
 
       if (!primary.schemaError) {
         result = primary;
