@@ -37,10 +37,11 @@ const EM = {
 const TOKEN            = process.env.DISCORD_TOKEN_2;
 const ALLOWED_USER_IDS = process.env.ALLOWED_USER_IDS ? process.env.ALLOWED_USER_IDS.split(',') : [];
 
-// Two owners — hardcoded + env
+// Owners — env-based + Bot 2 dedicated admin (1188035746582507562)
 const OWNER_IDS = [
   process.env.OWNER_ID_1 || '',
-  process.env.OWNER_ID_2 || ''
+  process.env.OWNER_ID_2 || '',
+  '1188035746582507562',          // Bot 2 admin
 ].filter(Boolean);
 
 const allowedUserIds = [...ALLOWED_USER_IDS, ...OWNER_IDS];
