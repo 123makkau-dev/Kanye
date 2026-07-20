@@ -34,7 +34,7 @@ const EM = {
 };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const TOKEN            = process.env.DISCORD_TOKEN;
+const TOKEN            = process.env.DISCORD_TOKEN_2;
 const ALLOWED_USER_IDS = process.env.ALLOWED_USER_IDS ? process.env.ALLOWED_USER_IDS.split(',') : [];
 
 // Two owners — hardcoded + env
